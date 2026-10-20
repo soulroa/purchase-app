@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>소액구매 앱 - 접속</title>
+    <style>
+        body { 
+            font-family: 'Malgun Gothic', sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            background-color: #f4f4f9; 
+        }
+        .container { 
+            background: white; 
+            padding: 30px 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            width: 85%; 
+            max-width: 400px; 
+            text-align: center; 
+        }
+        h1 { 
+            font-size: 26px; 
+            margin-bottom: 30px; 
+            color: #222; 
+        }
+        input { 
+            width: 100%; 
+            padding: 18px; 
+            margin: 10px 0; 
+            border: 1px solid #ccc; 
+            border-radius: 8px; 
+            font-size: 20px; 
+            box-sizing: border-box; 
+        }
+        button { 
+            width: 100%; 
+            padding: 20px; 
+            background-color: #0056b3; 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 24px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            margin-top: 25px; 
+        }
+        button:disabled { 
+            background-color: #aaa; 
+        }
+        .helper-text { 
+            font-size: 15px; 
+            color: #666; 
+            margin-top: 20px; 
+            word-break: keep-all;
+        }
+    </style>
+    <!-- PWA 매니페스트 및 테마 컬러 연결 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0056b3">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- 서비스 워커 등록 스크립트 -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker 등록 성공:', reg.scope))
+                    .catch(err => console.log('Service Worker 등록 실패:', err));
+            });
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>소액구매 시스템</h1>
+        <input type="text" id="empNo" inputmode="numeric" placeholder="사원번호 입력">
+        <input type="text" id="empName" placeholder="이름 입력">
+        <button id="loginBtn" onclick="authenticate()">접속하기</button>
+        <div class="helper-text">최초 1회 접속 시 기기에 정보가 저장됩니다.</div>
+    </div>
+
+    <script>
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbRhTB_I99-_EFHbnqTyKPCEd5_lIWJdEQj8OPu3itKzzJSN-RyzGUsaL-rtR1ZHj6/exec';
+
+        window.onload = function() {
+            const savedEmpNo = localStorage.getItem('empNo');
+            const savedEmpName = localStorage.getItem('empName');
+            if (savedEmpNo) document.getElementById('empNo').value = savedEmpNo;
+            if (savedEmpName) document.getElementById('empName').value = savedEmpName;
+            
+            // 엔터키 이벤트 리스너 등록
+            document.getElementById('empNo').addEventListener('keypress', handleEnter);
+            document.getElementById('empName').addEventListener('keypress', handleEnter);
+        };
+
+        // 엔터키 감지 함수
+        function handleEnter(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // 기본 폼 제출 동작 방지
+                authenticate();
+            }
+        }
+
+        async function authenticate() {
+            const empNo = document.getElementById('empNo').value.trim();
+            const empName = document.getElementById('empName').value.trim();
+            const btn = document.getElementById('loginBtn');
+
+            if (!empNo || !empName) {
+                alert('사원번호와 이름을 모두 입력해주세요.');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = '인증 확인 중...';
+
+            try {
+                const encodedName = encodeURIComponent(empName);
+                const response = await fetch(`${SCRIPT_URL}?type=auth&empNo=${empNo}&name=${encodedName}`);
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    localStorage.setItem('empNo', empNo);
+                    localStorage.setItem('empName', empName);
+                    localStorage.setItem('depts', JSON.stringify(result.depts));
+                    
+                    window.location.href = 'menu.html';
+                } else {
+                    alert(result.message || '인증에 실패했습니다. 재직자 명부를 확인하세요.');
+                    btn.disabled = false;
+                    btn.innerText = '접속하기';
+                }
+            } catch (error) {
+                alert('통신 오류가 발생했습니다. 인터넷 연결을 확인하세요.');
+                btn.disabled = false;
+                btn.innerText = '접속하기';
+            }
+        }
+    </script>
+</body>
+</html>

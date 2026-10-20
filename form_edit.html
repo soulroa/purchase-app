@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>소액구매 내역 수정</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; margin: 0; background-color: #f4f4f9; display: flex; justify-content: center; }
+        .container { background: white; padding: 30px 20px; width: 100%; max-width: 600px; box-sizing: border-box; min-height: 100vh; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ffc107; padding-bottom: 15px; margin-bottom: 25px; }
+        h2 { margin: 0; font-size: 22px; color: #222; }
+        .btn-back { background: none; border: 1px solid #ccc; padding: 8px 15px; border-radius: 5px; font-size: 16px; cursor: pointer; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #333; }
+        .required { color: red; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 18px; border: 1px solid #ccc; border-radius: 8px; font-size: 18px; box-sizing: border-box; background-color: #fff; }
+        input[readonly] { background-color: #e9ecef; color: #495057; }
+        .file-upload-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
+        .file-upload-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; height: 100%; }
+        .btn-upload { background-color: #6c757d; color: white; border: none; padding: 18px; border-radius: 8px; font-size: 18px; width: 100%; pointer-events: none; }
+        #fileNameDisplay { display: block; margin-top: 10px; font-size: 16px; color: #0056b3; word-break: break-all; }
+        #existingPhotoMsg { color: #28a745; font-size: 15px; font-weight: bold; margin-top: 5px; display: none; }
+        .btn-submit { width: 100%; padding: 25px; background-color: #ffc107; color: #333; border: none; border-radius: 8px; font-size: 24px; font-weight: bold; cursor: pointer; margin-top: 20px; margin-bottom: 50px; }
+        .btn-submit:disabled { background-color: #aaa; color: white;}
+        #loadingOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); color: white; font-size: 24px; justify-content: center; align-items: center; z-index: 1000; }
+    </style>
+    <!-- PWA 매니페스트 및 테마 컬러 연결 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0056b3">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- 서비스 워커 등록 스크립트 -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker 등록 성공:', reg.scope))
+                    .catch(err => console.log('Service Worker 등록 실패:', err));
+            });
+        }
+    </script>
+</head>
+<body>
+    <div id="loadingOverlay">데이터 불러오는 중... <br>잠시만 기다려주세요.</div>
+    <div class="container">
+        <div class="header">
+            <h2>소액구매 내역 수정</h2>
+            <button class="btn-back" onclick="location.href='history.html'">뒤로</button>
+        </div>
+        <div class="form-group">
+            <label>신청 번호</label>
+            <input type="text" id="reqUid" readonly>
+        </div>
+        <div class="form-group">
+            <label>관할 부서 <span class="required">*</span></label>
+            <select id="deptSelect" onchange="syncLocation()">
+                <option value="">부서를 선택하세요</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>품목명 <span class="required">*</span></label>
+            <input type="text" id="item">
+        </div>
+        <div class="form-group">
+            <label>규격 (선택사항)</label>
+            <input type="text" id="spec">
+        </div>
+        <div class="form-group">
+            <label>수량 <span class="required">*</span></label>
+            <input type="text" id="qty" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9]/g, '').replace(/^0+/, '');">
+        </div>
+        <div class="form-group">
+            <label>구매신청사유 <span class="required">*</span></label>
+            <input type="text" id="reason">
+        </div>
+        <div class="form-group">
+            <label>수령 희망장소 <span class="required">*</span></label>
+            <input type="text" id="location">
+        </div>
+        <div class="form-group">
+            <label>사진 변경 (선택사항)</label>
+            <div id="existingPhotoMsg">✅ 기존 사진이 첨부되어 있습니다. 변경하려면 아래 버튼을 누르세요.</div>
+            <div class="file-upload-wrapper" style="margin-top: 10px;">
+                <button class="btn-upload">📷 새로운 사진 촬영 또는 파일 선택</button>
+                <input type="file" id="photo" accept="image/*" onchange="handleFileSelect(event)">
+            </div>
+            <span id="fileNameDisplay">선택된 새 사진 없음</span>
+        </div>
+        <button id="submitBtn" class="btn-submit" onclick="submitData()">수정 완료하기</button>
+    </div>
+
+    <script>
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbRhTB_I99-_EFHbnqTyKPCEd5_lIWJdEQj8OPu3itKzzJSN-RyzGUsaL-rtR1ZHj6/exec';
+        let base64Photo = "";
+        let existingImageUrl = "";
+        let targetUid = null;
+
+        window.onload = async function() {
+            const empNo = localStorage.getItem('empNo');
+            const deptsStr = localStorage.getItem('depts');
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            targetUid = urlParams.get('uid');
+
+            if (!empNo || !deptsStr || !targetUid) {
+                alert('잘못된 접근입니다. 첫 화면으로 이동합니다.');
+                window.location.href = 'index.html';
+                return;
+            }
+
+            document.getElementById('reqUid').value = targetUid;
+
+            const depts = JSON.parse(deptsStr);
+            const deptSelect = document.getElementById('deptSelect');
+            depts.forEach(dept => {
+                let option = document.createElement('option');
+                option.value = dept;
+                option.text = dept;
+                deptSelect.appendChild(option);
+            });
+
+            await fetchItemData(empNo, targetUid);
+        };
+
+        async function fetchItemData(empNo, uid) {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+            try {
+                const response = await fetch(`${SCRIPT_URL}?type=get_item&empNo=${empNo}&uid=${uid}`);
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    const data = result.data;
+                    document.getElementById('deptSelect').value = data.dept;
+                    document.getElementById('item').value = data.item;
+                    document.getElementById('spec').value = data.spec;
+                    document.getElementById('qty').value = data.qty;
+                    document.getElementById('reason').value = data.reason;
+                    document.getElementById('location').value = data.location;
+                    
+                    if(data.imageUrl) {
+                        existingImageUrl = data.imageUrl;
+                        document.getElementById('existingPhotoMsg').style.display = 'block';
+                    }
+                } else {
+                    alert(result.message);
+                    window.location.href = 'history.html';
+                }
+            } catch (error) {
+                alert('데이터를 불러오지 못했습니다. 통신 상태를 확인해주세요.');
+                window.location.href = 'history.html';
+            } finally {
+                document.getElementById('loadingOverlay').style.display = 'none';
+            }
+        }
+
+        function syncLocation() {
+            const dept = document.getElementById('deptSelect').value;
+            const locationInput = document.getElementById('location');
+            if(dept !== "") locationInput.value = dept; 
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            const display = document.getElementById('fileNameDisplay');
+            if (file) {
+                display.innerText = "선택됨: " + file.name + " (압축 중...)";
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        const MAX_SIZE = 1024;
+                        let width = img.width; let height = img.height;
+                        if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
+                        else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width; canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        base64Photo = canvas.toDataURL('image/jpeg', 0.7);
+                        display.innerText = "새로운 사진 적용 대기 중";
+                        document.getElementById('existingPhotoMsg').style.display = 'none'; 
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file); 
+            } else {
+                display.innerText = "선택된 새 사진 없음";
+                base64Photo = "";
+                if(existingImageUrl) document.getElementById('existingPhotoMsg').style.display = 'block';
+            }
+        }
+
+        async function submitData() {
+            const empNo = localStorage.getItem('empNo');
+            const empName = localStorage.getItem('empName');
+            const dept = document.getElementById('deptSelect').value;
+            const item = document.getElementById('item').value.trim();
+            const spec = document.getElementById('spec').value.trim();
+            const qty = document.getElementById('qty').value.trim();
+            const reason = document.getElementById('reason').value.trim();
+            const location = document.getElementById('location').value.trim();
+
+            let missingFields = [];
+            if (!dept) missingFields.push('관할 부서');
+            if (!item) missingFields.push('품목명');
+            if (!qty) missingFields.push('수량');
+            if (!reason) missingFields.push('구매신청사유');
+            if (!location) missingFields.push('수령 희망장소');
+
+            if (missingFields.length > 0) {
+                alert('다음 필수 항목이 누락되었습니다.\n\n- ' + missingFields.join('\n- '));
+                return;
+            }
+
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('submitBtn').innerText = '데이터 전송 중...';
+            document.getElementById('loadingOverlay').innerHTML = '데이터 수정 중... <br>잠시만 기다려주세요.';
+            document.getElementById('loadingOverlay').style.display = 'flex';
+
+            const payload = {
+                action: 'update', 
+                uid: targetUid,  
+                empNo: empNo,
+                name: empName,
+                dept: dept,
+                item: item,
+                spec: spec,
+                qty: qty,
+                reason: reason,
+                location: location,
+                imageUrl: existingImageUrl, 
+                imageBase64: base64Photo    
+            };
+
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    alert('성공적으로 수정되었습니다!');
+                    window.location.href = 'history.html'; 
+                } else if (result.status === 'auth_fail') {
+                    alert(result.message);
+                    localStorage.clear();
+                    window.location.href = 'index.html';
+                } else {
+                    alert('수정 실패: ' + result.message);
+                    resetUI();
+                }
+            } catch (error) {
+                alert('통신 오류: 인터넷이 불안정합니다.');
+                resetUI();
+            }
+        }
+
+        function resetUI() {
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = false;
+            btn.innerText = '수정 완료하기';
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

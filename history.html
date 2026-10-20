@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>내 신청 내역</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; margin: 0; background-color: #f4f4f9; display: flex; justify-content: center; }
+        .container { background: white; padding: 30px 20px; width: 100%; max-width: 600px; box-sizing: border-box; min-height: 100vh; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #28a745; padding-bottom: 15px; margin-bottom: 25px; }
+        h2 { margin: 0; font-size: 22px; color: #222; }
+        .btn-back { background: none; border: 1px solid #ccc; padding: 8px 15px; border-radius: 5px; font-size: 16px; cursor: pointer; }
+        #loadingMsg { text-align: center; font-size: 18px; color: #666; padding: 50px 0; display: none; }
+        .history-card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 15px; background-color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: left; position: relative; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .date { font-size: 16px; color: #666; }
+        .status { padding: 6px 12px; border-radius: 5px; font-size: 16px; font-weight: bold; }
+        .status-wait { background-color: #ffc107; color: #333; }
+        .status-done { background-color: #28a745; color: white; }
+        .status-other { background-color: #6c757d; color: white; }
+        .item-name { font-size: 22px; font-weight: bold; color: #222; margin: 5px 0; word-break: keep-all; }
+        .item-qty { font-size: 18px; color: #444; }
+        .uid-text { font-size: 14px; color: #999; margin-top: 5px; }
+        .no-data { text-align: center; font-size: 18px; color: #666; padding: 40px 0; }
+        .btn-load-more { width: 100%; padding: 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; font-size: 18px; font-weight: bold; color: #333; cursor: pointer; margin-top: 10px; margin-bottom: 30px; }
+        .btn-load-more:disabled { color: #999; cursor: not-allowed; }
+        .btn-edit { background-color: #6c757d; color: white; border: none; padding: 8px 12px; border-radius: 5px; font-size: 14px; cursor: pointer; margin-top: 10px; }
+    </style>
+    <!-- PWA 매니페스트 및 테마 컬러 연결 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0056b3">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- 서비스 워커 등록 스크립트 -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker 등록 성공:', reg.scope))
+                    .catch(err => console.log('Service Worker 등록 실패:', err));
+            });
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>내 신청 내역</h2>
+            <button class="btn-back" onclick="location.href='menu.html'">뒤로</button>
+        </div>
+        <div id="historyList">
+            <div id="loadingMsg">데이터를 불러오는 중입니다...</div>
+            <div id="listContent"></div> 
+            <button id="loadMoreBtn" class="btn-load-more" style="display: none;" onclick="loadMore()">더 보기 (다음 5건)</button>
+        </div>
+    </div>
+
+    <script>
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbRhTB_I99-_EFHbnqTyKPCEd5_lIWJdEQj8OPu3itKzzJSN-RyzGUsaL-rtR1ZHj6/exec';
+        
+        let allHistoryData = []; 
+        let currentPage = 1;
+        const itemsPerPage = 5; 
+        let empNoGlobal = '';
+
+        window.onload = async function() {
+            empNoGlobal = localStorage.getItem('empNo');
+            if (!empNoGlobal) {
+                alert('인증 정보가 없습니다. 첫 화면으로 이동합니다.');
+                window.location.href = 'index.html';
+                return;
+            }
+            document.getElementById('loadingMsg').style.display = 'block';
+            await fetchAllHistory();
+        };
+
+        async function fetchAllHistory() {
+            try {
+                const response = await fetch(`${SCRIPT_URL}?type=history&empNo=${empNoGlobal}`);
+                const result = await response.json(); 
+
+                if (result.status === 'success') {
+                    allHistoryData = result.history;
+                    renderPage(1); 
+                } else if (result.status === 'auth_fail') {
+                    alert(result.message);
+                    localStorage.clear();
+                    window.location.href = 'index.html';
+                } else {
+                    document.getElementById('listContent').innerHTML = `<div class="no-data">오류가 발생했습니다.<br>${result.message}</div>`;
+                }
+            } catch (error) {
+                 document.getElementById('listContent').innerHTML = `<div class="no-data">통신 오류가 발생했습니다.<br>인터넷 연결을 확인해주세요.</div>`;
+            } finally {
+                document.getElementById('loadingMsg').style.display = 'none'; 
+            }
+        }
+        
+        function renderPage(page) {
+            currentPage = page;
+            const startIndex = (page - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const itemsToShow = allHistoryData.slice(startIndex, endIndex);
+
+            renderHistoryDOM(itemsToShow, page === 1);
+
+            const loadMoreBtn = document.getElementById('loadMoreBtn');
+            if (endIndex >= allHistoryData.length) {
+                loadMoreBtn.style.display = 'none';
+            } else {
+                loadMoreBtn.style.display = 'block';
+                loadMoreBtn.innerText = "더 보기 (다음 5건)";
+                loadMoreBtn.disabled = false;
+            }
+        }
+
+        function loadMore() {
+            renderPage(currentPage + 1);
+        }
+
+        function renderHistoryDOM(historyArray, clearList) {
+            const listContent = document.getElementById('listContent');
+
+            if (clearList) {
+                listContent.innerHTML = '';
+                if (!historyArray || historyArray.length === 0) {
+                    listContent.innerHTML = '<div class="no-data">신청 내역이 없습니다.</div>';
+                    return;
+                }
+            }
+
+            historyArray.forEach(item => {
+                let statusClass = 'status-other';
+                let editBtnHtml = ''; 
+
+                if (item.status === '대기') {
+                    statusClass = 'status-wait';
+                    editBtnHtml = `<button class="btn-edit" onclick="editItem('${item.uid}')">내용 수정하기</button>`;
+                } else if (item.status === '완료') {
+                    statusClass = 'status-done';
+                }
+
+                let displayUid = item.uid ? `신청번호: ${item.uid}` : '과거 내역 (번호 없음)';
+
+                const card = document.createElement('div');
+                card.className = 'history-card';
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="date">${item.date}</span>
+                        <span class="status ${statusClass}">${item.status}</span>
+                    </div>
+                    <div class="item-name">${item.item}</div>
+                    <div class="item-qty" style="margin-bottom: 5px;">수량: ${item.qty}개</div>
+                    <div style="font-size: 15px; color: #0056b3;">📍 배송지: ${item.location}</div>
+                    <div class="uid-text">${displayUid}</div>
+                    ${editBtnHtml}
+                `;
+                listContent.appendChild(card);
+            });
+        }
+        
+        function editItem(uid) {
+            if(!uid || uid === 'undefined' || uid === 'null') {
+                alert('과거 내역(고유번호 없음)은 수정할 수 없습니다. 취소 후 신규 신청해주세요.');
+                return;
+            }
+            window.location.href = `form_edit.html?uid=${uid}`;
+        }
+    </script>
+</body>
+</html>

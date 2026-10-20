@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>소액구매 앱 - 메뉴</title>
+    <style>
+        body { 
+            font-family: 'Malgun Gothic', sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            background-color: #f4f4f9; 
+        }
+        .container { 
+            background: white; 
+            padding: 40px 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            width: 85%; 
+            max-width: 400px; 
+            text-align: center; 
+        }
+        h2 { 
+            font-size: 24px; 
+            margin-bottom: 40px; 
+            color: #222; 
+            word-break: keep-all;
+        }
+        .user-name {
+            color: #0056b3;
+            font-weight: bold;
+        }
+        button { 
+            width: 100%; 
+            padding: 25px 20px; 
+            background-color: #0056b3; 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 22px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            margin-bottom: 15px; 
+            display: block;
+        }
+        .btn-history {
+            background-color: #28a745;
+        }
+        .btn-logout {
+            background-color: transparent;
+            color: #666;
+            font-size: 16px;
+            padding: 15px;
+            margin-top: 20px;
+            margin-bottom: 0;
+            border: 1px solid #ccc;
+        }
+    </style>
+    <!-- PWA 매니페스트 및 테마 컬러 연결 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0056b3">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- 서비스 워커 등록 스크립트 -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker 등록 성공:', reg.scope))
+                    .catch(err => console.log('Service Worker 등록 실패:', err));
+            });
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h2><span id="welcomeName" class="user-name"></span>님, 환영합니다.<br>원하시는 작업을 선택하세요.</h2>
+        
+        <button onclick="location.href='form.html'">소액구매 신규 신청</button>
+        <button class="btn-history" onclick="location.href='history.html'">내 신청 내역 보기</button>
+        
+        <button class="btn-logout" onclick="logout()">다른 사번으로 접속 (초기화)</button>
+    </div>
+
+    <script>
+        window.onload = function() {
+            // 로컬 스토리지에서 이름 불러오기
+            const empName = localStorage.getItem('empName');
+            
+            // 인증 정보가 없으면 강제로 index.html로 돌려보냄 (비정상 접근 차단)
+            if (!empName) {
+                alert('인증 정보가 없습니다. 다시 접속해주세요.');
+                window.location.href = 'index.html';
+                return;
+            }
+            
+            document.getElementById('welcomeName').innerText = empName;
+        };
+
+        function logout() {
+            if (confirm('접속 정보를 초기화하시겠습니까?')) {
+                localStorage.removeItem('empNo');
+                localStorage.removeItem('empName');
+                localStorage.removeItem('depts');
+                window.location.href = 'index.html';
+            }
+        }
+    </script>
+</body>
+</html>
